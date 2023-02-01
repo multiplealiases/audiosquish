@@ -81,9 +81,8 @@ while true; do
             filepath="$2"
             break
             ;;
-
         *)
-            echo How did you get here?
+            printf 'How did you get here? The last args I saw were \n%s\n' "$@"
             exit 1
             break
             ;;
