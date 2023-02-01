@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+set -o nounset
+set -o errexit
+
+function file_notexist(){
+    printf ''\''%s'\'': file does not exist\n' "$1"
+    exit 3
+}
+
+function file_none(){
+    echo No file was specified.
+    help_text
+    exit 4
+}
+function audiorescale(){
+    base="${1%.*}"
+    base="$(basename "$base")"
+    tmpslices=$2
+    tmprescale=$3
+    tmpsliceaudio=$4
+    slicewidth=$5
+    resizewidth=$6
+    filter=$7
+    filter2=$8
+
+    convert "$1" -filter "$filter" -resize \!"$resizewidth"x miff:- | \
+    convert miff:- -filter "$filter2" -resize \!"$slicewidth"x "$tmprescale"/"$base".png
+    rm "$1"
+    ffmpeg -loglevel error -hide_banner -i "$tmprescale"/"$base".png -f rawvideo -pix_fmt rgb24 "$tmpsliceaudio"/"$base"
+    rm "$tmprescale"/"$base".png
+}
+export -f audiorescale
+
+function cleanup(){
+    rm -r $tmplist $tmpslices $tmprescale $tmpaudio
+}
+
+ARGS="$(getopt --options o:,h,s:,r:,j:,d:,u: --long slice-resolution:,resize-width:,jobs:,downscale-filter:,upscale-filter:,output:,help -- "$@")"
+eval set -- "$ARGS"
+while true; do
+        case "$1" in
+        -o | --output)
+            output_prefix="$2"
+            shift 2
+            ;;
+        -h | --help)
+            help_text
+            exit 127
+            ;;
+        -s | --slice-resolution)
+            sliceres="$2"
+            shift 2
+            ;;
+        -r | --resize-width)
+            resizewidth="$2"
+            shift 2
+            ;;
+        -j | --jobs)
+            jobs="$2"
+            shift 2
+            ;;
+        -d | --downscale-filter)
+            filter="$2"
+            shift 2
+            ;;
+        -u | --upscale-filter)
+            filter2="$2"
+            shift 2
+            ;;
+        --)
+            set +o nounset 
+            if [[ -z "$2" ]]
+            then 
+                file_none
+            elif [[ ! -e "$2" ]]
+            then
+                file_notexist "$2"
+            fi
+            set -o nounset
+            filepath="$2"
+            break
+            ;;
+
+        *)
+            echo How did you get here?
+            exit 1
+            break
+            ;;
+    esac
+done
+
+sliceres="${sliceres:-1024x16}"
+slicewidth="$(printf %s "$sliceres" | cut -dx -f1)"
+resizewidth="${resizewidth:-476}"
+jobs="${jobs:-8}"
+filter="${filter:-Triangle}"
+filter2="${filter2:-Sinc}"
+
+channels="$(ffprobe -v error -select_streams a -of default=noprint_wrappers=1:nokey=1 -show_entries stream=channels "$filepath")"
+rate="$(ffprobe -v error -select_streams a -of default=noprint_wrappers=1:nokey=1 -show_entries stream=sample_rate "$filepath")"
+
+filename="$(basename "$filepath")"
+base_filename="${filename%.*}"
+output_prefix="${output_prefix:-$base_filename}"
+output_name="$base_filename"-"$sliceres"-"$resizewidth"-"$filter"-"$filter2"
+
+tmpslices="$(mktemp -d)"
+tmplist="$(mktemp)"
+tmprescale="$(mktemp -d)"
+tmpsliceaudio="$(mktemp -d)"
+tmpaudio="$(mktemp)"
+
+trap 'cleanup' ERR EXIT 
+
+ffmpeg -i "$filepath" -f u8 - | \
+ffmpeg -f rawvideo -s "$sliceres" -pix_fmt rgb24 -i - "$tmpslices"/%10d.png
+
+find "$tmpslices" -type f | sort > "$tmplist"
+
+parallel --progress -j"$jobs" audiorescale \{1\} "$tmpslices" "$tmprescale" "$tmpsliceaudio" "$slicewidth" "$resizewidth" "$filter" "$filter2" :::: "$tmplist"
+
+find "$tmpsliceaudio" -type f | sort | xargs cat >> $tmpaudio
+sox -c "$channels" -r "$rate" -t u8 $tmpaudio "$output_name".flac
