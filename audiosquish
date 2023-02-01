@@ -61,7 +61,7 @@ function audiorescale(){
 export -f audiorescale
 
 function cleanup(){
-    rm -r "$tmplist" "$tmpslices" "$tmprescale" "$tmpaudio"
+    rm -r "$tmplist" "$tmpslices" "$tmprescale" "$tmpaudio" "$tmpsliceaudio"
 }
 
 ARGS="$(getopt --options o:,h,s:,r:,j:,d:,u: --long slice-resolution:,size:,resize:,resize-width:,jobs:,downscale-filter:,upscale-filter:,output:,help -- "$@")"
