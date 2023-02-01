@@ -3,6 +3,34 @@
 set -o nounset
 set -o errexit
 
+function banner() {
+    echo Squish audio and stretch it back out \(but cursed\).
+}
+
+function usage() {
+    echo Usage: audiosquish \[options\] filename
+}
+
+
+function help_text(){
+    cat << EOF
+$(banner)
+$(usage)
+
+Text encased in [] are defaults.
+Slice options:
+-s, --size         size of each slice [1024x16]
+Resizing options:
+-r, --resize       width to resize slices to [476]
+-d, --downscale    filter to use during downscaling [Triangle]
+-u, --upscale      filter to use during upscaling [Sinc]
+Other options:
+-j, --jobs         number of jobs to use during resizing process [$(nproc)]
+-o, --output       output prefix [filename]
+-h, --help         this help
+EOF
+}
+
 function file_notexist(){
     printf ''\''%s'\'': file does not exist\n' "$1"
     exit 3
@@ -36,7 +64,7 @@ function cleanup(){
     rm -r "$tmplist" "$tmpslices" "$tmprescale" "$tmpaudio"
 }
 
-ARGS="$(getopt --options o:,h,s:,r:,j:,d:,u: --long slice-resolution:,resize-width:,jobs:,downscale-filter:,upscale-filter:,output:,help -- "$@")"
+ARGS="$(getopt --options o:,h,s:,r:,j:,d:,u: --long slice-resolution:,size:,resize:,resize-width:,jobs:,downscale-filter:,upscale-filter:,output:,help -- "$@")"
 eval set -- "$ARGS"
 while true; do
         case "$1" in
@@ -48,11 +76,11 @@ while true; do
             help_text
             exit 127
             ;;
-        -s | --slice-resolution)
+        -s | --size | --slice-resolution)
             sliceres="$2"
             shift 2
             ;;
-        -r | --resize-width)
+        -r | --resize | --resize-width)
             resizewidth="$2"
             shift 2
             ;;
@@ -60,11 +88,11 @@ while true; do
             jobs="$2"
             shift 2
             ;;
-        -d | --downscale-filter)
+        -d | --downscale | --downscale-filter)
             filter="$2"
             shift 2
             ;;
-        -u | --upscale-filter)
+        -u | --upscale | --upscale-filter)
             filter2="$2"
             shift 2
             ;;
@@ -92,7 +120,7 @@ done
 sliceres="${sliceres:-1024x16}"
 slicewidth="$(printf %s "$sliceres" | cut -dx -f1)"
 resizewidth="${resizewidth:-476}"
-jobs="${jobs:-8}"
+jobs="${jobs:-$(nproc)}"
 filter="${filter:-Triangle}"
 filter2="${filter2:-Sinc}"
 
@@ -112,8 +140,8 @@ tmpaudio="$(mktemp)"
 
 trap 'cleanup' ERR EXIT 
 
-ffmpeg -i "$filepath" -f u8 - | \
-ffmpeg -f rawvideo -s "$sliceres" -pix_fmt rgb24 -i - "$tmpslices"/%10d.png
+ffmpeg -hide_banner -loglevel error -i "$filepath" -f u8 - | \
+ffmpeg -hide_banner -loglevel error -f rawvideo -s "$sliceres" -pix_fmt rgb24 -i - "$tmpslices"/%10d.png
 
 find "$tmpslices" -type f | sort > "$tmplist"
 
