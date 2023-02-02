@@ -47,16 +47,15 @@ function audiorescale(){
     tmpslices=$2
     tmprescale=$3
     tmpsliceaudio=$4
-    slicewidth=$5
+    sliceres=$5
+    slicewidth="$(printf %s "$sliceres" | cut -dx -f1)"
     resizewidth=$6
     filter=$7
     filter2=$8
 
-    convert "$1" -filter "$filter" -resize \!"$resizewidth"x miff:- | \
-    convert miff:- -filter "$filter2" -resize \!"$slicewidth"x "$tmprescale"/"$base".png
+    convert -depth 16 -size "$sliceres"  RGB:"$1" -filter "$filter" -resize \!"$resizewidth"x miff:- | \
+    convert miff:- -filter "$filter2" -resize \!"$slicewidth"x -depth 16 RGB:"$tmpsliceaudio"/"$base"
     rm "$1"
-    ffmpeg -loglevel error -hide_banner -i "$tmprescale"/"$base".png -f rawvideo -pix_fmt rgb24 "$tmpsliceaudio"/"$base"
-    rm "$tmprescale"/"$base".png
 }
 export -f audiorescale
 
@@ -140,12 +139,12 @@ tmpaudio="$(mktemp)"
 
 trap 'cleanup' ERR EXIT 
 
-ffmpeg -hide_banner -loglevel error -i "$filepath" -f u8 - | \
-ffmpeg -hide_banner -loglevel error -f rawvideo -s "$sliceres" -pix_fmt rgb24 -i - "$tmpslices"/%10d.png
+ffmpeg -hide_banner -i "$filepath" -f u16le - | \
+ffmpeg -hide_banner -f rawvideo -s "$sliceres" -pix_fmt rgb48le -i - -f rawvideo -pix_fmt rgb48le "$tmpslices"/%10d
 
 find "$tmpslices" -type f | sort > "$tmplist"
 
-parallel --progress -j"$jobs" audiorescale \{1\} "$tmpslices" "$tmprescale" "$tmpsliceaudio" "$slicewidth" "$resizewidth" "$filter" "$filter2" :::: "$tmplist"
+parallel --progress -j"$jobs" audiorescale \{1\} "$tmpslices" "$tmprescale" "$tmpsliceaudio" "$sliceres" "$resizewidth" "$filter" "$filter2" :::: "$tmplist"
 
 find "$tmpsliceaudio" -type f | sort | xargs cat >> "$tmpaudio"
-sox -c "$channels" -r "$rate" -t u8 "$tmpaudio" "$output_name".flac
+sox -c "$channels" -r "$rate" -t u16 "$tmpaudio" "$output_name".flac
