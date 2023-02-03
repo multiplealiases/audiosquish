@@ -42,8 +42,7 @@ function file_none(){
     exit 4
 }
 function audiorescale(){
-    base="${1%.*}"
-    base="$(basename "$base")"
+    base="$(basename "$1")"
     tmpslices=$2
     tmprescale=$3
     tmpsliceaudio=$4
@@ -60,7 +59,7 @@ function audiorescale(){
 export -f audiorescale
 
 function cleanup(){
-    rm -r "$tmplist" "$tmpslices" "$tmprescale" "$tmpaudio" "$tmpsliceaudio"
+    rm -r "$tmplist" "$tmpslices" "$tmprescale" "$tmpsliceaudio"
 }
 
 ARGS="$(getopt --options o:,h,s:,r:,j:,d:,u: --long slice-resolution:,size:,resize:,resize-width:,jobs:,downscale-filter:,upscale-filter:,output:,help -- "$@")"
@@ -117,7 +116,8 @@ while true; do
 done
 
 sliceres="${sliceres:-1024x16}"
-slicewidth="$(printf %s "$sliceres" | cut -dx -f1)"
+slicewidth="$(cut -dx -f 1 - <<< $sliceres)"
+sliceheight="$(cut -dx -f 2 - <<< $sliceres)"
 resizewidth="${resizewidth:-476}"
 jobs="${jobs:-$(nproc)}"
 filter="${filter:-Triangle}"
@@ -135,16 +135,17 @@ tmpslices="$(mktemp -d)"
 tmplist="$(mktemp)"
 tmprescale="$(mktemp -d)"
 tmpsliceaudio="$(mktemp -d)"
-tmpaudio="$(mktemp)"
 
 trap 'cleanup' ERR EXIT 
 
-ffmpeg -hide_banner -i "$filepath" -f u16le - | \
-ffmpeg -hide_banner -f rawvideo -s "$sliceres" -pix_fmt rgb48le -i - -f rawvideo -pix_fmt rgb48le "$tmpslices"/%10d
+ffmpeg -hide_banner -loglevel error -i "$filepath" -f u16le - | \
+ffmpeg -hide_banner -loglevel error -f rawvideo -s "$sliceres" -pix_fmt rgb48le -i - -f rawvideo -pix_fmt rgb48le "$tmpslices"/big
+pushd "$tmpslices"
+split --suffix-length=10 -d --bytes "$((sliceheight * slicewidth * 3 * 2))" "$tmpslices"/big
+rm big
+popd
 
 find "$tmpslices" -type f | sort > "$tmplist"
+parallel --progress --eta -j"$jobs" audiorescale \{1\} "$tmpslices" "$tmprescale" "$tmpsliceaudio" "$sliceres" "$resizewidth" "$filter" "$filter2" :::: "$tmplist"
 
-parallel --progress -j"$jobs" audiorescale \{1\} "$tmpslices" "$tmprescale" "$tmpsliceaudio" "$sliceres" "$resizewidth" "$filter" "$filter2" :::: "$tmplist"
-
-find "$tmpsliceaudio" -type f | sort | xargs cat >> "$tmpaudio"
-sox -c "$channels" -r "$rate" -t u16 "$tmpaudio" "$output_name".flac
+find "$tmpsliceaudio" -type f | sort | xargs cat | sox -c "$channels" -r "$rate" -t u16 - "$output_name".flac
