@@ -17,7 +17,7 @@ function help_text(){
 $(banner)
 $(usage)
 
-Text encased in [] are defaults.
+Defaults shown in [].
 Slice options:
 -s, --size         size of each slice [1024x16]
 Resizing options:
